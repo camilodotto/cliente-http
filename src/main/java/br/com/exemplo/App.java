@@ -3,44 +3,71 @@ package br.com.exemplo;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
 import java.io.Console;
 import java.io.FileInputStream;
 import java.security.KeyStore;
 
 public class App {
     public static void main(String[] args) throws Exception {
-        if (args.length != 2) {
-            System.out.println("Uso: java -jar cliente-http.jar <URL> <CAMINHO_CERTIFICADO>");
+        if (args.length < 1) {
+            System.out.println("Uso: java -jar cliente-http.jar <URL> [--cert <CAMINHO_CERTIFICADO>] [--tls <PROTOCOLO_TLS>]");
             return;
         }
 
         String url = args[0];
-        String caminhoCertificado = args[1];
+        String caminhoCertificado = null;
+        String protocoloTLS = "TLS"; // padrão
 
-        Console console = System.console();
-        if (console == null) {
-            System.err.println("Erro: não foi possível acessar o console.");
-            return;
+        // Parse dos parâmetros
+        for (int i = 1; i < args.length; i++) {
+            if ("--cert".equals(args[i]) && i + 1 < args.length) {
+                caminhoCertificado = args[++i];
+            } else if ("--tls".equals(args[i]) && i + 1 < args.length) {
+                protocoloTLS = args[++i];
+            }
         }
 
-        char[] senhaChars = console.readPassword("Digite a senha do certificado: ");
-        String senha = new String(senhaChars);
+        CloseableHttpClient httpClient;
 
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        keyStore.load(new FileInputStream(caminhoCertificado), senha.toCharArray());
+        if (caminhoCertificado != null) {
+            // Com certificado
+            Console console = System.console();
+            if (console == null) {
+                System.err.println("Erro: não foi possível acessar o console.");
+                return;
+            }
 
-        SSLContext sslContext = org.apache.http.ssl.SSLContexts.custom()
-                .loadKeyMaterial(keyStore, senha.toCharArray())
-                .build();
+            char[] senhaChars = console.readPassword("Digite a senha do certificado: ");
+            String senha = new String(senhaChars);
 
-        SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(sslContext);
-        CloseableHttpClient httpClient = HttpClients.custom().setSSLSocketFactory(sslsf).build();
+            KeyStore keyStore = KeyStore.getInstance("PKCS12");
+            keyStore.load(new FileInputStream(caminhoCertificado), senha.toCharArray());
+
+            SSLContext sslContext = org.apache.http.ssl.SSLContexts.custom()
+                    .setProtocol(protocoloTLS)
+                    .loadKeyMaterial(keyStore, senha.toCharArray())
+                    .build();
+
+            SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(
+                    sslContext,
+                    new String[]{ protocoloTLS },  // protocolos suportados
+                    null,
+                    NoopHostnameVerifier.INSTANCE // evitar erro com hostname (ajuste conforme necessário)
+            );
+
+            httpClient = HttpClients.custom().setSSLSocketFactory(sslsf).build();
+        } else {
+            // Sem certificado (cliente anônimo)
+            httpClient = HttpClients.createDefault();
+        }
 
         try {
             HttpGet request = new HttpGet(url);
