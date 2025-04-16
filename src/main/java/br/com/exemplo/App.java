@@ -10,7 +10,6 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLParameters;
 import java.io.Console;
 import java.io.FileInputStream;
 import java.security.KeyStore;
@@ -24,7 +23,7 @@ public class App {
 
         String url = args[0];
         String caminhoCertificado = null;
-        String protocoloTLS = "TLS"; // padrão
+        String protocoloTLS = null; // Ex: TLSv1.2, TLSv1.3
 
         // Parse dos parâmetros
         for (int i = 1; i < args.length; i++) {
@@ -52,20 +51,32 @@ public class App {
             keyStore.load(new FileInputStream(caminhoCertificado), senha.toCharArray());
 
             SSLContext sslContext = org.apache.http.ssl.SSLContexts.custom()
-                    .setProtocol(protocoloTLS)
                     .loadKeyMaterial(keyStore, senha.toCharArray())
                     .build();
 
             SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(
                     sslContext,
-                    new String[]{ protocoloTLS },  // protocolos suportados
+                    protocoloTLS != null ? new String[]{ protocoloTLS } : null,
                     null,
-                    NoopHostnameVerifier.INSTANCE // evitar erro com hostname (ajuste conforme necessário)
+                    NoopHostnameVerifier.INSTANCE
+            );
+
+            httpClient = HttpClients.custom().setSSLSocketFactory(sslsf).build();
+        } else if (protocoloTLS != null) {
+            // Sem certificado, mas com protocolo TLS forçado
+            SSLContext sslContext = SSLContext.getInstance(protocoloTLS);
+            sslContext.init(null, null, null);
+
+            SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(
+                    sslContext,
+                    new String[]{ protocoloTLS },
+                    null,
+                    NoopHostnameVerifier.INSTANCE
             );
 
             httpClient = HttpClients.custom().setSSLSocketFactory(sslsf).build();
         } else {
-            // Sem certificado (cliente anônimo)
+            // Sem certificado, sem protocolo especificado
             httpClient = HttpClients.createDefault();
         }
 
