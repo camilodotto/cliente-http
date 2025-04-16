@@ -1,0 +1,4 @@
+*.class
+*.lst
+target/**
+!target/cliente-http-*-jar-with-dependencies.jar
