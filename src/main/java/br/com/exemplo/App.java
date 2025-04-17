@@ -8,14 +8,21 @@ import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
+import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider;
 
-import javax.net.ssl.SSLContext;
+import javax.net.ssl.*;
 import java.io.Console;
 import java.io.FileInputStream;
 import java.security.KeyStore;
+import java.security.Security;
+import java.util.Arrays;
 
 public class App {
+
     public static void main(String[] args) throws Exception {
+        // Adiciona o provedor BCJSSE
+        Security.insertProviderAt(new BouncyCastleJsseProvider(), 1);
+
         if (args.length < 1) {
             System.out.println("Uso: java -jar cliente-http.jar <URL> [--cert <CAMINHO_CERTIFICADO>] [--tls <PROTOCOLO_TLS>]");
             return;
@@ -23,9 +30,9 @@ public class App {
 
         String url = args[0];
         String caminhoCertificado = null;
-        String protocoloTLS = null; // Ex: TLSv1.2, TLSv1.3
+        String protocoloTLS = "TLSv1.2"; // padrão
 
-        // Parse dos parâmetros
+        // Lê parâmetros
         for (int i = 1; i < args.length; i++) {
             if ("--cert".equals(args[i]) && i + 1 < args.length) {
                 caminhoCertificado = args[++i];
@@ -36,8 +43,16 @@ public class App {
 
         CloseableHttpClient httpClient;
 
+        // Cifras exigidas pelo servidor
+        String[] cipherSuites = new String[]{
+            "TLS_RSA_WITH_AES_256_GCM_SHA384",
+            "TLS_RSA_WITH_AES_128_GCM_SHA256"
+        };
+
+        // Cria contexto SSL
+        SSLContext sslContext = SSLContext.getInstance(protocoloTLS, "BCJSSE");
+
         if (caminhoCertificado != null) {
-            // Com certificado
             Console console = System.console();
             if (console == null) {
                 System.err.println("Erro: não foi possível acessar o console.");
@@ -47,38 +62,28 @@ public class App {
             char[] senhaChars = console.readPassword("Digite a senha do certificado: ");
             String senha = new String(senhaChars);
 
-            KeyStore keyStore = KeyStore.getInstance("PKCS12");
+            KeyStore keyStore = KeyStore.getInstance("PKCS12", "BC");
             keyStore.load(new FileInputStream(caminhoCertificado), senha.toCharArray());
 
-            SSLContext sslContext = org.apache.http.ssl.SSLContexts.custom()
-                    .loadKeyMaterial(keyStore, senha.toCharArray())
-                    .build();
+            KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+            kmf.init(keyStore, senha.toCharArray());
 
-            SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(
-                    sslContext,
-                    protocoloTLS != null ? new String[]{ protocoloTLS } : null,
-                    null,
-                    NoopHostnameVerifier.INSTANCE
-            );
-
-            httpClient = HttpClients.custom().setSSLSocketFactory(sslsf).build();
-        } else if (protocoloTLS != null) {
-            // Sem certificado, mas com protocolo TLS forçado
-            SSLContext sslContext = SSLContext.getInstance(protocoloTLS);
-            sslContext.init(null, null, null);
-
-            SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(
-                    sslContext,
-                    new String[]{ protocoloTLS },
-                    null,
-                    NoopHostnameVerifier.INSTANCE
-            );
-
-            httpClient = HttpClients.custom().setSSLSocketFactory(sslsf).build();
+            sslContext.init(kmf.getKeyManagers(), null, null);
         } else {
-            // Sem certificado, sem protocolo especificado
-            httpClient = HttpClients.createDefault();
+            sslContext.init(null, null, null);
         }
+
+        // Aplica protocolo e cifras
+        SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(
+            sslContext,
+            new String[]{ protocoloTLS },
+            cipherSuites,
+            NoopHostnameVerifier.INSTANCE
+        );
+
+        httpClient = HttpClients.custom()
+                .setSSLSocketFactory(sslsf)
+                .build();
 
         try {
             HttpGet request = new HttpGet(url);
