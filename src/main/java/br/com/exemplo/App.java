@@ -24,6 +24,7 @@ public class App {
         String url = args[0];
         String caminhoCertificado = null;
         String protocoloTLS = null; // Ex: TLSv1.2, TLSv1.3
+        String senha = null;
 
         // Parse dos parâmetros
         for (int i = 1; i < args.length; i++) {
@@ -31,6 +32,8 @@ public class App {
                 caminhoCertificado = args[++i];
             } else if ("--tls".equals(args[i]) && i + 1 < args.length) {
                 protocoloTLS = args[++i];
+            } else if ("--pass".equals(args[i]) && i + 1 < args.length) {
+                senha = args[++i];
             }
         }
 
@@ -38,14 +41,16 @@ public class App {
 
         if (caminhoCertificado != null) {
             // Com certificado
-            Console console = System.console();
-            if (console == null) {
-                System.err.println("Erro: não foi possível acessar o console.");
-                return;
+            if (senha == null) {
+                Console console = System.console();
+                if (console == null) {
+                    System.err.println("Erro: não foi possível acessar o console.");
+                    return;
+                }
+    
+                char[] senhaChars = console.readPassword("Digite a senha do certificado: ");
+                senha = new String(senhaChars);
             }
-
-            char[] senhaChars = console.readPassword("Digite a senha do certificado: ");
-            String senha = new String(senhaChars);
 
             KeyStore keyStore = KeyStore.getInstance("PKCS12");
             keyStore.load(new FileInputStream(caminhoCertificado), senha.toCharArray());
